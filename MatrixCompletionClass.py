@@ -87,49 +87,7 @@ class MatrixCompletion:
 
 
     def complete_matrix(self):
-        """
-        Это написало гпт
-        Different methods of matrix completion
-        In this example LS implemented
-        """
-        
-        m, n = self.M_noisy.shape
-        U = np.random.randn(m, self.rank)
-        V = np.random.randn(n, self.rank)
-        M_filled = np.nan_to_num(self.M_noisy)
-        self.history = []
-        self.time = []
-
-        start_time = time.time()
-        for it in range(self.num_iters):
-            # Update U
-            for i in range(m):
-                V_i = V[self.M_mask[i, :], :]  # Observed entries in row i
-                M_i = M_filled[i, self.M_mask[i, :]]
-                if V_i.size == 0:
-                    continue
-                # Solve least squares: minimize ||U[i]V_i^T - M_i||^2 + lambda_reg ||U[i]||^2
-                U[i, :] = np.linalg.lstsq(V_i, M_i, rcond=None)[0]
-            
-            # Update V
-            for j in range(n):
-                U_j = U[self.M_mask[:, j], :]  # Observed entries in column j
-                M_j = M_filled[self.M_mask[:, j], j]
-                if U_j.size == 0:
-                    continue
-                # Solve least squares: minimize ||U_j V[j] - M_j||^2 + lambda_reg ||V[j]||^2
-                V[j, :] = np.linalg.lstsq(U_j, M_j, rcond=None)[0]
-            
-            # Compute current approximation
-            M_current = U @ V.T
-
-            # Calculate error
-            error = np.linalg.norm((M_current - M_filled)[self.M_mask])
-            self.error_history.append(error)
-            self.time_history.append(time.time() - start_time)
-
-        self.M_completed = U @ V.T
-
+        raise NotImplementedError("Implement 'complete_matrix' function.")
 
     def plot_matrices(self):
 
@@ -188,3 +146,51 @@ class MatrixCompletion:
         self.remove_entries()
         self.add_gaussian_noise()
         self.complete_matrix()
+
+
+class SimpleLS(MatrixCompletion):
+    def complete_matrix(self):
+        """
+        Это написало гпт
+        Different methods of matrix completion
+        In this example LS implemented
+        """
+
+        raise NotImplementedError("Implement 'complete_matrix' function.")
+        
+        m, n = self.M_noisy.shape
+        U = np.random.randn(m, self.rank)
+        V = np.random.randn(n, self.rank)
+        M_filled = np.nan_to_num(self.M_noisy)
+        self.history = []
+        self.time = []
+
+        start_time = time.time()
+        for it in range(self.num_iters):
+            # Update U
+            for i in range(m):
+                V_i = V[self.M_mask[i, :], :]  # Observed entries in row i
+                M_i = M_filled[i, self.M_mask[i, :]]
+                if V_i.size == 0:
+                    continue
+                # Solve least squares: minimize ||U[i]V_i^T - M_i||^2 + lambda_reg ||U[i]||^2
+                U[i, :] = np.linalg.lstsq(V_i, M_i, rcond=None)[0]
+            
+            # Update V
+            for j in range(n):
+                U_j = U[self.M_mask[:, j], :]  # Observed entries in column j
+                M_j = M_filled[self.M_mask[:, j], j]
+                if U_j.size == 0:
+                    continue
+                # Solve least squares: minimize ||U_j V[j] - M_j||^2 + lambda_reg ||V[j]||^2
+                V[j, :] = np.linalg.lstsq(U_j, M_j, rcond=None)[0]
+            
+            # Compute current approximation
+            M_current = U @ V.T
+
+            # Calculate error
+            error = np.linalg.norm((M_current - M_filled)[self.M_mask])
+            self.error_history.append(error)
+            self.time_history.append(time.time() - start_time)
+
+        self.M_completed = U @ V.T

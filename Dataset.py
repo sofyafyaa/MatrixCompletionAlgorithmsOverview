@@ -46,9 +46,7 @@ class MatrixGenerator:
 
 # Successor class: RandomMatrix
 class RandomMatrix:
-    def __init__(
-        self, m, n, k, random_state=None, missing_fraction=0.1, noise_level=0.0
-    ):
+    def __init__(self, m, n, k, random_state=None, missing_fraction=0.1, noise_level=0):
         """
         Initializes the RandomMatrix generator.
 

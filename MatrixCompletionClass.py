@@ -33,13 +33,15 @@ class MatrixCompletion:
         self.num_iters = params.get("num_iters", 100)
         self.tol = params.get("tol", -1)
         self.random_state = params.get("random_state", None)
-        # self._set_seed()
 
         self.error_history = []
         self.time_history = []
 
-    def complete_matrix(self):
+    def complete_matrix(self, M, Omega):
         raise NotImplementedError("Implement 'complete_matrix' function.")
+    
+    def plot_info(self):
+        pass
 
     def plot_matrices(self):
 

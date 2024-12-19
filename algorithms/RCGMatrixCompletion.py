@@ -1,6 +1,9 @@
-import numpy as np
+# import numpy as np
+import cupy as np
+import numpy
 import json
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 from MatrixCompletionClass import MatrixCompletion
 from utils.metrics import calculate_relative_error, calculate_relative_residual
@@ -24,6 +27,9 @@ class RCGMatrixCompletion(MatrixCompletion):
         """Solve the matrix completion problem using Riemannian Conjugate Gradient."""
         self.iters_info = []
         
+        M = np.asarray(M)
+        Omega = np.asarray(Omega)
+        
         method = kwargs['method']
         metric = kwargs['metric']
         
@@ -33,7 +39,7 @@ class RCGMatrixCompletion(MatrixCompletion):
         grad_G_prev, grad_H_prev = None, None
         direction_G, direction_H = None, None
 
-        for iter in range(self.num_iters):
+        for iter in tqdm(range(self.num_iters)):
             # Compute gradient and cost
             grad_G, grad_H = self._compute_gradient(G, H, M, Omega, metric)
             cost = self._compute_cost(G, H, M, Omega)
@@ -71,6 +77,7 @@ class RCGMatrixCompletion(MatrixCompletion):
             grad_G_prev, grad_H_prev = grad_G.copy(), grad_H.copy()
 
             X = G @ H.T
+            
             relative_error = calculate_relative_error(X, M)
             relative_residual = calculate_relative_residual(X, M, Omega)
             self.iters_info.append({
@@ -179,10 +186,10 @@ class RCGMatrixCompletion(MatrixCompletion):
     def plot_info(self, path):
         # Extracting data for plotting
         iterations = [info['iteration'] for info in self.iters_info]
-        costs = [info['cost'] for info in self.iters_info]
-        grad_norms = [info['grad_norm'] for info in self.iters_info]
-        relative_errors = [info['relative_error'] for info in self.iters_info]
-        relative_residuals = [info['relative_residual'] for info in self.iters_info]
+        costs = [np.asnumpy(info['cost']) for info in self.iters_info]
+        grad_norms = [np.asnumpy(info['grad_norm']) for info in self.iters_info]
+        relative_errors = [np.asnumpy(info['relative_error']) for info in self.iters_info]
+        relative_residuals = [np.asnumpy(info['relative_residual']) for info in self.iters_info]
 
         # Create and save the plots in a single figure
         fig, axs = plt.subplots(2, 2, figsize=(10, 8))

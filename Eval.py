@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import List, Dict
 import time
 import json
+import os
 
 from MatrixCompletionClass import MatrixCompletion
 from Dataset import MatrixGenerator
@@ -44,12 +45,13 @@ def evaluate(evaluation_config: EvaluationConfig):
         finish = time.time()
         elapsed_time = finish - start
         print('Elapsed time: ', elapsed_time)
-        model.model.plot_info()
+        path = os.path.join('plots', model.title + '.png')
+        model.model.plot_info(path)
 
 
 if __name__ == '__main__':
     alpha = 0.33 # Normalization parameter for RGD and RCG
-    num_iters = 1_000 # Maximum number of iterations for completion
+    num_iters = 1_000_000 # Maximum number of iterations for completion
     tol = 1e-3 # Convergence tolerance, np.inf if it not need
     
     rcg_rgd_model_config = json.dumps({
@@ -82,8 +84,8 @@ if __name__ == '__main__':
     ]
     evaluation_config = EvaluationConfig(
         models_evaluation_config=models_evaluation_config,
-        m=50,
-        n=50,
+        m=500,
+        n=500,
         rank=10,
         OS=0.2,
         noise_level=0,

@@ -51,7 +51,7 @@ def evaluate(evaluation_config: EvaluationConfig):
 
 if __name__ == '__main__':
     alpha = 0.33 # Normalization parameter for RGD and RCG
-    num_iters = 1_000_000 # Maximum number of iterations for completion
+    num_iters = 30_000 # Maximum number of iterations for completion
     tol = 1e-6 # Convergence tolerance, np.inf if it not need
     
     rcg_rgd_model_config = json.dumps({
@@ -61,26 +61,26 @@ if __name__ == '__main__':
     })
     
     models_evaluation_config = [
-        # ModelEvaluationConfig(
-        #     title=f'RGD (QPRECON) alpha={alpha}',
-        #     model=RCGMatrixCompletion(params_str=rcg_rgd_model_config),
-        #     kwargs={'method': 'rgd', 'metric': 'QPRECON'}
-        # ),
-        # ModelEvaluationConfig(
-        #     title=f'RGD (QRIGHT-INV) alpha={alpha}',
-        #     model=RCGMatrixCompletion(params_str=rcg_rgd_model_config),
-        #     kwargs={'method': 'rgd', 'metric': 'QRIGHT-INV'}
-        # ),
+        ModelEvaluationConfig(
+            title=f'RGD (QPRECON) alpha={alpha}',
+            model=RCGMatrixCompletion(params_str=rcg_rgd_model_config),
+            kwargs={'method': 'rgd', 'metric': 'QPRECON'}
+        ),
+        ModelEvaluationConfig(
+            title=f'RGD (QRIGHT-INV) alpha={alpha}',
+            model=RCGMatrixCompletion(params_str=rcg_rgd_model_config),
+            kwargs={'method': 'rgd', 'metric': 'QRIGHT-INV'}
+        ),
         ModelEvaluationConfig(
             title=f'RCG (QPRECON) alpha={alpha}',
             model=RCGMatrixCompletion(params_str=rcg_rgd_model_config),
             kwargs={'method': 'rcg', 'metric': 'QPRECON'}
         ),
-        # ModelEvaluationConfig(
-        #     title=f'RCG (QRIGHT-INV) alpha={alpha}',
-        #     model=RCGMatrixCompletion(params_str=rcg_rgd_model_config),
-        #     kwargs={'method': 'rcg', 'metric': 'QRIGHT-INV'}
-        # ),
+        ModelEvaluationConfig(
+            title=f'RCG (QRIGHT-INV) alpha={alpha}',
+            model=RCGMatrixCompletion(params_str=rcg_rgd_model_config),
+            kwargs={'method': 'rcg', 'metric': 'QRIGHT-INV'}
+        ),
     ]
     evaluation_config = EvaluationConfig(
         models_evaluation_config=models_evaluation_config,

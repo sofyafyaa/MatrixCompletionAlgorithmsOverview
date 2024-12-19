@@ -93,7 +93,7 @@ class LRGeomCG:
         self.singular_values_eps = params.get('singular_values_eps', 1e-6)
         self.logs = defaultdict(list)
 
-    def plot_info(self):
+    def plot_info(self, path):
             fig, ax = plt.subplots(2, 2, constrained_layout=True, figsize=(12,5))
     
             ax[0][0].plot(self.logs["relative_error"], label=f"k = {self.logs['rank']}")
@@ -122,7 +122,11 @@ class LRGeomCG:
             ax[1][1].set_ylabel(r"$\|\eta\|_F$", fontsize=16)
 
             plt.legend()
-            plt.show()
+            # Adjust layout
+            plt.tight_layout()
+
+            # Save the figure
+            plt.savefig(path)
 
     def _get_initial_approximation(self, m, n, k):
         X_L = np.random.randn(m, k)

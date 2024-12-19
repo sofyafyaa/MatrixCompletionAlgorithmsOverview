@@ -18,8 +18,11 @@ class RCGMatrixCompletion(MatrixCompletion):
         params = json.loads(params_str)
         self.alpha = params["alpha"]
 
-    def complete_matrix(self, M, Omega, method="rcg", metric="QPRECON"):
+    def complete_matrix(self, M, Omega, **kwargs):
         """Solve the matrix completion problem using Riemannian Conjugate Gradient."""
+        method = kwargs['method']
+        metric = kwargs['metric']
+        
         # Initialization
         G, H = self._get_initial_approximation(M, Omega)
 
@@ -40,7 +43,7 @@ class RCGMatrixCompletion(MatrixCompletion):
                 break
 
             # Compute conjugate gradient direction
-            if iter == 0 or method == "rdg":
+            if iter == 0 or method == "rgd":
                 direction_G, direction_H = -grad_G, -grad_H
             else:
                 beta_FR = (np.sum(grad_G**2) + np.sum(grad_H**2)) / (

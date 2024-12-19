@@ -40,7 +40,7 @@ class MatrixCompletion:
     def complete_matrix(self, M, Omega):
         raise NotImplementedError("Implement 'complete_matrix' function.")
     
-    def plot_info(self):
+    def plot_info(self, path):
         pass
 
     def plot_matrices(self):

@@ -1,7 +1,9 @@
 import numpy as np
 import json
+import matplotlib.pyplot as plt
 
 from MatrixCompletionClass import MatrixCompletion
+from utils.metrics import calculate_relative_error, calculate_relative_residual
 
 
 class RCGMatrixCompletion(MatrixCompletion):
@@ -20,6 +22,8 @@ class RCGMatrixCompletion(MatrixCompletion):
 
     def complete_matrix(self, M, Omega, **kwargs):
         """Solve the matrix completion problem using Riemannian Conjugate Gradient."""
+        self.iters_info = []
+        
         method = kwargs['method']
         metric = kwargs['metric']
         
@@ -66,9 +70,16 @@ class RCGMatrixCompletion(MatrixCompletion):
             # Store previous gradients for next iteration
             grad_G_prev, grad_H_prev = grad_G.copy(), grad_H.copy()
 
-            # Print progress every few iterations
-            if iter % 10 == 0:
-                print(f"Iter {iter}: Cost={cost:.6f}, GradNorm={grad_norm:.6e}")
+            X = G @ H.T
+            relative_error = calculate_relative_error(X, M)
+            relative_residual = calculate_relative_residual(X, M, Omega)
+            self.iters_info.append({
+                'iteration': iter,
+                'cost': cost,
+                'grad_norm': grad_norm,
+                'relative_error': relative_error,
+                'relative_residual': relative_residual
+            })
 
         return G @ H.T
 
@@ -164,3 +175,45 @@ class RCGMatrixCompletion(MatrixCompletion):
 
         step_size = numerator / denominator
         return max(step_size, 1e-4)  # Ensure positive step size
+    
+    def plot_info(self, path):
+        # Extracting data for plotting
+        iterations = [info['iteration'] for info in self.iters_info]
+        costs = [info['cost'] for info in self.iters_info]
+        grad_norms = [info['grad_norm'] for info in self.iters_info]
+        relative_errors = [info['relative_error'] for info in self.iters_info]
+        relative_residuals = [info['relative_residual'] for info in self.iters_info]
+
+        # Create and save the plots in a single figure
+        fig, axs = plt.subplots(2, 2, figsize=(10, 8))
+
+        # Plotting each metric
+        axs[0, 0].plot(iterations, costs, marker='o')
+        axs[0, 0].set_yscale('log')
+        axs[0, 0].set_title('Cost vs Iteration')
+        axs[0, 0].set_xlabel('Iteration')
+        axs[0, 0].set_ylabel('Cost')
+
+        axs[0, 1].plot(iterations, grad_norms, marker='o', color='orange')
+        axs[0, 1].set_yscale('log')
+        axs[0, 1].set_title('Grad Norm vs Iteration')
+        axs[0, 1].set_xlabel('Iteration')
+        axs[0, 1].set_ylabel('Grad Norm')
+
+        axs[1, 0].plot(iterations, relative_errors, marker='o', color='green')
+        axs[1, 0].set_yscale('log')
+        axs[1, 0].set_title('Relative Error vs Iteration')
+        axs[1, 0].set_xlabel('Iteration')
+        axs[1, 0].set_ylabel('Relative Error')
+
+        axs[1, 1].plot(iterations, relative_residuals, marker='o', color='red')
+        axs[1, 1].set_yscale('log')
+        axs[1, 1].set_title('Relative Residual vs Iteration')
+        axs[1, 1].set_xlabel('Iteration')
+        axs[1, 1].set_ylabel('Relative Residual')
+
+        # Adjust layout
+        plt.tight_layout()
+
+        # Save the figure
+        plt.savefig(path)

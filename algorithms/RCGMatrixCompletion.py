@@ -183,44 +183,55 @@ class RCGMatrixCompletion(MatrixCompletion):
         step_size = numerator / denominator
         return max(step_size, 1e-4)  # Ensure positive step size
     
-    def plot_info(self, path):
-        # Extracting data for plotting
-        iterations = [info['iteration'] for info in self.iters_info]
-        costs = [np.asnumpy(info['cost']) for info in self.iters_info]
-        grad_norms = [np.asnumpy(info['grad_norm']) for info in self.iters_info]
-        relative_errors = [np.asnumpy(info['relative_error']) for info in self.iters_info]
-        relative_residuals = [np.asnumpy(info['relative_residual']) for info in self.iters_info]
-
+    @staticmethod
+    def plot_info(path, experiments):
         # Create and save the plots in a single figure
         fig, axs = plt.subplots(2, 2, figsize=(12, 10))
+        colors = ['red', 'blue', 'yellow', 'green']
 
         axs[0, 0].set_yscale("log")
-        axs[0, 0].plot(iterations, relative_errors, label=f"alpha={self.alpha}")
         axs[0, 0].set_title("Reconstruction Error Over Time", fontsize=18)
         axs[0, 0].set_xlabel("Iteration", fontsize=12)
         axs[0, 0].set_ylabel(r"$\frac{\|X-A\|_F}{\|A\|_F}$", fontsize=16)
-        axs[0, 0].legend()  # Add legend to this subplot
 
         axs[0, 1].set_yscale("log")
-        axs[0, 1].plot(iterations, relative_residuals, label=f"alpha={self.alpha}")
         axs[0, 1].set_title("Reconstruction Residual Over Time", fontsize=18)
         axs[0, 1].set_xlabel("Iteration", fontsize=12)
         axs[0, 1].set_ylabel(r"$\frac{\|P_{\Omega}(X-A)\|_F}{\|P_{\Omega}(A)\|_F}$", fontsize=16)
-        axs[0, 1].legend()  # Add legend to this subplot
 
         axs[1, 0].set_yscale("log")
-        axs[1, 0].plot(iterations, grad_norms, label=f"alpha={self.alpha}")
         axs[1, 0].set_title("Gradient Norm over time", fontsize=18)
         axs[1, 0].set_xlabel("Iteration", fontsize=12)
         axs[1, 0].set_ylabel(r"$\|\nabla\|P_{\Omega}(X-A)\|_F\|$", fontsize=16)
-        axs[1, 0].legend()  # Add legend to this subplot
 
         axs[1, 1].set_yscale("log")
-        axs[1, 1].plot(iterations, costs, label=f"alpha={self.alpha}")
         axs[1, 1].set_title("Conjugate Direction Norm over time", fontsize=18)
         axs[1, 1].set_xlabel("Iteration", fontsize=12)
         axs[1, 1].set_ylabel(r"$\|\eta\|_F$", fontsize=16)
-        axs[1, 1].legend()  # Add legend to this subplot
+        
+        for i, experiment in enumerate(experiments):
+            iters_info = experiment['iters_info']
+            alpha = experiment['alpha']
+            OS = experiment['OS']
+            rank = experiment['rank']
+            
+            iterations = [info['iteration'] for info in iters_info]
+            costs = [np.asnumpy(info['cost']) for info in iters_info]
+            grad_norms = [np.asnumpy(info['grad_norm']) for info in iters_info]
+            relative_errors = [np.asnumpy(info['relative_error']) for info in iters_info]
+            relative_residuals = [np.asnumpy(info['relative_residual']) for info in iters_info]
+
+            label = f"alpha={alpha} missing={OS} rank={rank}"
+            color = colors[i % len(colors)]
+            axs[0, 0].plot(iterations, relative_errors, label=label, colors=color)
+            axs[0, 1].plot(iterations, relative_residuals, label=label, colors=color)
+            axs[1, 0].plot(iterations, grad_norms, label=label, colors=color)
+            axs[1, 1].plot(iterations, costs, label=label, colors=color)
+        
+        axs[0, 0].legend()
+        axs[0, 1].legend()
+        axs[1, 0].legend()
+        axs[1, 1].legend()
 
         # Adjust layout
         plt.tight_layout()

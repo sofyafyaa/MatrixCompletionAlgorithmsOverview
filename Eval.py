@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from typing import List, Dict
-import time
 import json
 import os
 
@@ -21,32 +20,40 @@ class EvaluationConfig:
     models_evaluation_config: List[ModelEvaluationConfig]
     m: int
     n: int
-    rank: int
-    OS: float
+    ranks: List[int]
+    OSs: List[float]
     noise_level: float
     seed: int
 
 
 def evaluate(evaluation_config: EvaluationConfig):
     MG = MatrixGenerator()
-    M, Omega = MG.get_matrix(
-        m=evaluation_config.m,
-        n=evaluation_config.n,
-        k=evaluation_config.rank,
-        missing_fraction=evaluation_config.OS,
-        noise_level=evaluation_config.noise_level,
-        random_state=evaluation_config.seed
-    )
+    test_cases = []
+    for rank in evaluation_config.ranks:
+        for OS in evaluation_config.OSs:
+            M, Omega = MG.get_matrix(
+                m=evaluation_config.m,
+                n=evaluation_config.n,
+                k=rank,
+                missing_fraction=OS,
+                noise_level=evaluation_config.noise_level,
+                random_state=evaluation_config.seed
+            )
+            test_cases.append((M, Omega, rank, OS))
     
     for model in evaluation_config.models_evaluation_config:
         print(f'Evaluating {model.title}...')
-        start = time.time()
-        model.model.complete_matrix(M=M, Omega=Omega, **model.kwargs)
-        finish = time.time()
-        elapsed_time = finish - start
-        print('Elapsed time: ', elapsed_time)
+        experiments = []
+        for M, Omega, rank, OS in test_cases:
+            print(f'rank={rank} OS={OS}...')
+            model.model.complete_matrix(M=M, Omega=Omega, **model.kwargs)
+            experiments.append({
+                'iters_info': model.model.iters_info,
+                'rank': rank,
+                'OS': OS
+            })
         path = os.path.join('plots', model.title + '.png')
-        model.model.plot_info(path)
+        model.model.plot_info(path, experiments)
 
 
 if __name__ == '__main__':
@@ -86,8 +93,8 @@ if __name__ == '__main__':
         models_evaluation_config=models_evaluation_config,
         m=900,
         n=900,
-        rank=10,
-        OS=0.9,
+        ranks=[10, 50],
+        OSs=[0.7, 0.9],
         noise_level=0,
         seed=42
     )

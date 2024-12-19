@@ -6,10 +6,16 @@ from collections import defaultdict
 from tqdm import tqdm
 
 
+def calculate_relative_error(X, A):
+    return np.linalg.norm(X - A) / np.linalg.norm(A)
+
+def calculate_relative_residual(X, A, omega_mask):
+    return np.linalg.norm(X[omega_mask] - A[omega_mask]) / np.linalg.norm(A[omega_mask])
+
 class TangentVector:
     def __init__(self, U, V, M, Up, Vp, nu=None):
-        assert np.allclose(Up.T @ U, 0)
-        assert np.allclose(Vp.T @ V, 0)
+        assert np.allclose(Up.T @ U, 0), "Matrix does not belong to Tangent Space"
+        assert np.allclose(Vp.T @ V, 0), "Matrix does not belong to Tangent Space"
 
         self.U = U
         self.V = V
@@ -39,8 +45,8 @@ class TangentVector:
         return self * -1
 
     def __add__(self, other):
-        assert np.allclose(self.U, other.U)
-        assert np.allclose(self.V, other.V)
+        assert np.allclose(self.U, other.U), "Matrix does not belong to Tangent Space"
+        assert np.allclose(self.V, other.V), "Matrix does not belong to Tangent Space"
         return TangentVector(
             U=self.U, V=self.V,
             M=self.M + other.M,
@@ -58,115 +64,80 @@ class TangentVector:
         assert np.allclose(self.V, other.V)
         pass
 
+def p_omega(X, omega_mask):
+    matrix = np.zeros(X.shape)
+    matrix[omega_mask] = X[omega_mask]
+
+    return matrix
+
+def truncated_svd(X, k):
+    """
+    Calculates truncated SVD
+    """
+    usv = np.linalg.svd(X, full_matrices=False)
+    return usv.U[:, :k], np.diag(usv.S[:k]), usv.Vh.T[:, :k]
+
 class LRGeomCG:
     def __init__(self, params_str):
         """
         params_str:
         {
-            "m": 1000, - rows of M
-            "n": 1000, - columns of M
-            "rank": 10, - rank of M
-            "OS": 2, - fraction od deleting values
             "num_iters": 100, - Maximum number of iterations
             "tol": 1e-4, - Convergence criteria
-            "random_state": 42,
         }
         """
         params = json.loads(params_str)
         self.params_json = params
-        self.m = params.get('m', 1000)
-        self.n = params.get('n', 1000)
-        self.rank = params.get('rank', 30)
-        self.OS = params.get('OS', 2)
-        self.num_iters = params.get('num_iters', 100)
-        self.tol = params.get('tol', -1)
-        self.random_state = params.get('random_state', None)
-        self._set_seed()
-
-        self.A = None
-        self.omega_mask = None
-
+        self.max_iter = params.get('max_iter', 300)
+        self.tol = params.get('tol', 1e-6)
+        self.singular_values_eps = params.get('singular_values_eps', 1e-6)
         self.logs = defaultdict(list)
-        
-    def create_low_rank_matrix(self):
-        """
-        M_true (n x m) - random marix
-        """
-        U = np.random.randn(self.m, self.rank)
-        V = np.random.randn(self.n, self.rank)
-        self.A = U @ V.T
 
-    def build_omega_mask(self):
-        omega_size = self.OS * (self.m + self.n - self.rank) * self.rank
-        omega = np.random.choice(m*n, omega_size, replace=False)
-        omega_mask = np.zeros((self.m * self.n,), dtype=bool)
-        omega_mask[omega] = True
-        self.omega_mask = omega_mask.reshape(self.m, self.n)
-        self.A_omega = self.A[self.omega_mask]
-
-    def complete_matrix(self):
-        """
-        Algorithm 1
-        """
-        self.logs["rank"] = self.rank
-        self.logs["m"] = self.m
-        self.logs["n"] = self.n
-
-        k = self.rank
-
-        # initialize 0 iteration
-        X_L = np.random.randn(self.m, k)
-        X_R = np.random.randn(self.n, k)
-        X_prev = X_L @ X_R.T
-        usv = np.linalg.svd(X_prev)
-        U_prev, S_prev, V_prev = usv.U[:, :k], np.diag(usv.S[:k]), usv.Vh.T[:, :k]
-        X_omega_prev =  X_prev[self.omega_mask]
-        R = X_omega_prev - self.A_omega
-        grad_prev = self.riemannian_grad(U_prev, V_prev, R)
-        dir_prev = grad_prev
-
-        # Initialize 1st iteration
-        X_L = np.random.randn(self.m, k)
-        X_R = np.random.randn(self.n, k)
-        X = X_L @ X_R.T
-        usv = np.linalg.svd(X)
-        U, S, V = usv.U[:, :k], np.diag(usv.S[:k]), usv.Vh.T[:, :k]
-        X_omega = X[self.omega_mask]
-
-        for i in tqdm(range(self.num_iters), total=self.num_iters):
-            R = X_omega - self.A_omega
-
-            grad = self.riemannian_grad(U, V, R)
-
-            if grad.norm <= self.tol:
-                break
-            
-            self.logs["grad_norm"].append(grad.norm)
-
-            dir = self.conjugate_direction(
-                U_prev=U_prev, V_prev=V_prev,
-                U=U, V=V, grad=grad,
-                grad_prev=grad_prev,
-                dir_prev=dir_prev,
-            )
-            self.logs["dir_norm"].append(dir.norm)
-            
-            X_prev, U_prev, S_prev, V_prev = X, U, S, V
-            t_opt = self.initial_guess(U, V, -R, dir)
-            X, U, S, V = self.retraction(U, S, V, dir * t_opt*0.5, k)
-            X_omega = X[self.omega_mask]
-
-            relative_error = np.linalg.norm(X - self.A) / np.linalg.norm(self.A)
-            self.logs["relative_error"].append(relative_error)
-
-            relative_residual = np.linalg.norm(X_omega - self.A_omega) / np.linalg.norm(self.A_omega)
-            self.logs["relative_residual"].append(relative_residual)
-
-        return X
+    def plot_info(self, path):
+            fig, ax = plt.subplots(2, 2, constrained_layout=True, figsize=(12,5))
     
-    def riemannian_grad(self, U, V, R):
+            ax[0][0].plot(self.logs["relative_error"], label=f"k = {self.logs['rank']}")
+            ax[0][1].plot(self.logs["relative_residual"], label=f"k = {self.logs['rank']}")
+            ax[1][0].plot(self.logs["grad_norm"], label=f"k = {self.logs['rank']}")
+            ax[1][1].plot(self.logs["dir_norm"], label=f"k = {self.logs['rank']}")
+
+            ax[0][0].set_yscale("log")
+            ax[0][0].set_title("Reconstruction Error Over Time", fontsize=18)
+            ax[0][0].set_xlabel("Iteration", fontsize=12)
+            ax[0][0].set_ylabel(r"$\frac{\|X-A\|_F}{\|A\|_F}$", fontsize=16)
+
+            ax[0][1].set_yscale("log")
+            ax[0][1].set_title("Reconstruction Residual Over Time", fontsize=18)
+            ax[0][1].set_xlabel("Iteration", fontsize=12)
+            ax[0][1].set_ylabel(r"$\frac{\|P_{\Omega}(X-A)\|_F}{\|P_{\Omega}(A)\|_F}$", fontsize=16)
+
+            ax[1][0].set_yscale("log")
+            ax[1][0].set_title("Gradient Norm over time", fontsize=18)
+            ax[1][0].set_xlabel("Iteration", fontsize=12)
+            ax[1][0].set_ylabel(r"$\|\nabla\|P_{\Omega}(X-A)\|_F\|$", fontsize=16)
+
+            ax[1][1].set_yscale("log")
+            ax[1][1].set_title("Conjugate Direction Norm over time", fontsize=18)
+            ax[1][1].set_xlabel("Iteration", fontsize=12)
+            ax[1][1].set_ylabel(r"$\|\eta\|_F$", fontsize=16)
+
+            plt.legend()
+            # Adjust layout
+            plt.tight_layout()
+
+            # Save the figure
+            plt.savefig(path)
+
+    def _get_initial_approximation(self, m, n, k):
+        X_L = np.random.randn(m, k)
+        X_R = np.random.randn(n, k)
+        X = X_L @ X_R.T
+
+        return X, truncated_svd(X, k)
+    
+    def _riemannian_grad(self, U, V, R):
         """
-        Algorithm 2
+        Described in Algorithm 2 in original paper.
         """
         Ru = R.T @ U
         Rv = R @ V
@@ -181,7 +152,7 @@ class LRGeomCG:
             Up=Up, Vp=Vp,
         )
 
-    def vector_transport(self, U_plus, V_plus, v):
+    def _vector_transport(self, U_plus, V_plus, v):
         """
         Algorithm 3
         """
@@ -215,12 +186,12 @@ class LRGeomCG:
             U=U_plus, V=V_plus, M=M_plus, Up=Up_plus, Vp=Vp_plus
         )
 
-    def conjugate_direction(self, U, V, grad, grad_prev, dir_prev):
+    def _conjugate_direction(self, U, V, grad, grad_prev, dir_prev):
         """
         Algorithm 4
         """
-        grad_prev_tr = self.vector_transport(U_plus=U, V_plus=V, v=grad_prev)
-        dir_prev_tr = self.vector_transport(U_plus=U, V_plus=V, v=dir_prev)
+        grad_prev_tr = self._vector_transport(U_plus=U, V_plus=V, v=grad_prev)
+        dir_prev_tr = self._vector_transport(U_plus=U, V_plus=V, v=dir_prev)
 
         delta = grad - grad_prev_tr
         beta = max(0, delta.scalar_product(grad) / grad_prev.norm**2)
@@ -232,19 +203,19 @@ class LRGeomCG:
 
         return dir
 
-    def initial_guess(self, U, V, R, dir):
+    def _initial_guess(self, U, V, R, dir, omega_mask):
         """
         Algorithm 5
         """
         U_ext = np.concatenate([U @ dir.M + dir.Up, U], axis=1)
         V_ext = np.concatenate([V, dir.Vp], axis=1)
 
-        N = self.omega_proj(U_ext @ V_ext.T)
+        N = p_omega(U_ext @ V_ext.T, omega_mask)
         t_opt = np.trace(N.T @ R) / np.trace(N.T @ N)
 
         return t_opt
 
-    def retraction(self, U, S, V, scaled_dir, k):
+    def _retraction(self, U, S, V, scaled_dir, k):
         """
         Algorithm 6
         """
@@ -255,20 +226,65 @@ class LRGeomCG:
         row2 = np.concatenate([Ru, np.zeros((Ru.shape[0], row1.shape[1] - Ru.shape[1]))], axis=1)
         s = np.concatenate([row1, row2], axis=0)
 
-        usv = np.linalg.svd(s)
-        Us, Ss, Vs = usv.U, usv.S, usv.Vh.T
+        Us, Ss, Vs = truncated_svd(s, k)
 
-        eps = np.zeros(k) + 1e-6
-        S_plus = np.diag(Ss[:k] + eps)
-        U_plus = np.concatenate([U, Qu], axis=1) @ Us[:, :k]
-        V_plus = np.concatenate([V, Qv], axis=1) @ Vs[:, :k]
+        S_plus = Ss + self.singular_values_eps
+        U_plus = np.concatenate([U, Qu], axis=1) @ Us
+        V_plus = np.concatenate([V, Qv], axis=1) @ Vs
 
         return U_plus @ S_plus @ V_plus.T, U_plus, S_plus, V_plus
+    
+    def complete_matrix(self, A, omega_mask, k):
+        """
+        Described in Algorithm 1 in original paper.
+        """
+        m = A.shape[0]
+        n = A.shape[1]
 
-    def run(self):
-        """
-        Executes pipeline.
-        """
-        self.build_low_rank_matrix()
-        self.build_omega_mask()
-        self.complete_matrix()
+        self.logs["rank"] = k
+        self.logs["m"] = m
+        self.logs["n"] = n
+
+        A_omega = p_omega(A, omega_mask)
+
+        # initialize 0 iteration
+        X_prev, (U_prev, _, V_prev) = self._get_initial_approximation(m, n, k)
+        X_omega_prev = p_omega(X_prev, omega_mask)
+        R = X_omega_prev - A_omega
+
+        grad_prev = self._riemannian_grad(U_prev, V_prev, R)
+        dir_prev = grad_prev
+
+        # Initialize 1st iteration
+        X, (U, S, V) = self._get_initial_approximation(m, n, k)
+        X_omega = p_omega(X, omega_mask)
+
+        for i in tqdm(range(self.max_iter), total=self.max_iter):
+            R = X_omega - A_omega
+
+            grad = self._riemannian_grad(U, V, R)
+
+            if grad.norm <= self.tol:
+                break
+            
+            self.logs["grad_norm"].append(grad.norm)
+
+            dir = self._conjugate_direction(
+                U=U, V=V, grad=grad,
+                grad_prev=grad_prev,
+                dir_prev=dir_prev,
+            )
+            self.logs["dir_norm"].append(dir.norm)
+            
+            X_prev, U_prev, V_prev = X, U, V
+            t_opt = self._initial_guess(U, V, -R, dir, omega_mask)
+            X, U, S, V = self._retraction(U, S, V, dir * t_opt*0.5, k)
+            X_omega = p_omega(X, omega_mask)
+
+            relative_error = calculate_relative_error(X, A)
+            self.logs["relative_error"].append(relative_error)
+
+            relative_residual = calculate_relative_residual(X, A, omega_mask)
+            self.logs["relative_residual"].append(relative_residual)
+
+        return X

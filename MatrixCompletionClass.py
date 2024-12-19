@@ -33,10 +33,15 @@ class MatrixCompletion:
         self.num_iters = params.get("num_iters", 100)
         self.tol = params.get("tol", -1)
         self.random_state = params.get("random_state", None)
-        # self._set_seed()
+        self._set_seed()
 
         self.error_history = []
         self.time_history = []
+
+    def _set_seed(self):
+        if self.random_state is not None:
+            np.random.seed(self.random_state)
+
 
     def complete_matrix(self):
         raise NotImplementedError("Implement 'complete_matrix' function.")

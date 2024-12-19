@@ -1,9 +1,9 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import json
 
 from collections import defaultdict
 from tqdm import tqdm
+from MatrixCompletionClass import MatrixCompletion
 
 
 class TangentVector:
@@ -58,83 +58,37 @@ class TangentVector:
         assert np.allclose(self.V, other.V)
         pass
 
-class LRGeomCG:
+class LRGeomCG(MatrixCompletion):
     def __init__(self, params_str):
-        """
-        params_str:
-        {
-            "m": 1000, - rows of M
-            "n": 1000, - columns of M
-            "rank": 10, - rank of M
-            "OS": 2, - fraction od deleting values
-            "num_iters": 100, - Maximum number of iterations
-            "tol": 1e-4, - Convergence criteria
-            "random_state": 42,
-        }
-        """
-        params = json.loads(params_str)
-        self.params_json = params
-        self.m = params.get('m', 1000)
-        self.n = params.get('n', 1000)
-        self.rank = params.get('rank', 30)
-        self.OS = params.get('OS', 2)
-        self.num_iters = params.get('num_iters', 100)
-        self.tol = params.get('tol', -1)
-        self.random_state = params.get('random_state', None)
-        self._set_seed()
-
-        self.A = None
-        self.omega_mask = None
-
+        super().__init__(params_str)
         self.logs = defaultdict(list)
-        
-    def create_low_rank_matrix(self):
-        """
-        M_true (n x m) - random marix
-        """
-        U = np.random.randn(self.m, self.rank)
-        V = np.random.randn(self.n, self.rank)
-        self.A = U @ V.T
-
-    def build_omega_mask(self):
-        omega_size = self.OS * (self.m + self.n - self.rank) * self.rank
-        omega = np.random.choice(m*n, omega_size, replace=False)
-        omega_mask = np.zeros((self.m * self.n,), dtype=bool)
-        omega_mask[omega] = True
-        self.omega_mask = omega_mask.reshape(self.m, self.n)
-        self.A_omega = self.A[self.omega_mask]
-
-    def complete_matrix(self):
+    
+    def complete_matrix(self, M, Omega, k, M_true):
         """
         Algorithm 1
         """
-        self.logs["rank"] = self.rank
-        self.logs["m"] = self.m
-        self.logs["n"] = self.n
-
-        k = self.rank
-
         # initialize 0 iteration
-        X_L = np.random.randn(self.m, k)
-        X_R = np.random.randn(self.n, k)
+        n, m = M.shape
+        X_L = np.random.randn(m, k)
+        X_R = np.random.randn(n, k)
         X_prev = X_L @ X_R.T
         usv = np.linalg.svd(X_prev)
         U_prev, S_prev, V_prev = usv.U[:, :k], np.diag(usv.S[:k]), usv.Vh.T[:, :k]
-        X_omega_prev =  X_prev[self.omega_mask]
-        R = X_omega_prev - self.A_omega
+        X_omega_prev =  Omega * X_prev
+        R = X_omega_prev - M
         grad_prev = self.riemannian_grad(U_prev, V_prev, R)
         dir_prev = grad_prev
 
         # Initialize 1st iteration
-        X_L = np.random.randn(self.m, k)
-        X_R = np.random.randn(self.n, k)
+        X_L = np.random.randn(m, k)
+        X_R = np.random.randn(n, k)
         X = X_L @ X_R.T
         usv = np.linalg.svd(X)
         U, S, V = usv.U[:, :k], np.diag(usv.S[:k]), usv.Vh.T[:, :k]
-        X_omega = X[self.omega_mask]
+        X_omega = Omega * X
 
         for i in tqdm(range(self.num_iters), total=self.num_iters):
-            R = X_omega - self.A_omega
+            R = X_omega - M
 
             grad = self.riemannian_grad(U, V, R)
 
@@ -144,7 +98,7 @@ class LRGeomCG:
             self.logs["grad_norm"].append(grad.norm)
 
             dir = self.conjugate_direction(
-                U_prev=U_prev, V_prev=V_prev,
+                # U_prev=U_prev, V_prev=V_prev,
                 U=U, V=V, grad=grad,
                 grad_prev=grad_prev,
                 dir_prev=dir_prev,
@@ -152,14 +106,14 @@ class LRGeomCG:
             self.logs["dir_norm"].append(dir.norm)
             
             X_prev, U_prev, S_prev, V_prev = X, U, S, V
-            t_opt = self.initial_guess(U, V, -R, dir)
+            t_opt = self.initial_guess(U, V, -R, dir, Omega)
             X, U, S, V = self.retraction(U, S, V, dir * t_opt*0.5, k)
-            X_omega = X[self.omega_mask]
+            X_omega = Omega * X
 
-            relative_error = np.linalg.norm(X - self.A) / np.linalg.norm(self.A)
+            relative_error = np.linalg.norm(X - M_true) / np.linalg.norm(M_true)
             self.logs["relative_error"].append(relative_error)
 
-            relative_residual = np.linalg.norm(X_omega - self.A_omega) / np.linalg.norm(self.A_omega)
+            relative_residual = np.linalg.norm(X_omega - M) / np.linalg.norm(M)
             self.logs["relative_residual"].append(relative_residual)
 
         return X
@@ -232,14 +186,14 @@ class LRGeomCG:
 
         return dir
 
-    def initial_guess(self, U, V, R, dir):
+    def initial_guess(self, U, V, R, dir, Omega):
         """
         Algorithm 5
         """
         U_ext = np.concatenate([U @ dir.M + dir.Up, U], axis=1)
         V_ext = np.concatenate([V, dir.Vp], axis=1)
 
-        N = self.omega_proj(U_ext @ V_ext.T)
+        N =  Omega * (U_ext @ V_ext.T)
         t_opt = np.trace(N.T @ R) / np.trace(N.T @ N)
 
         return t_opt
@@ -264,11 +218,3 @@ class LRGeomCG:
         V_plus = np.concatenate([V, Qv], axis=1) @ Vs[:, :k]
 
         return U_plus @ S_plus @ V_plus.T, U_plus, S_plus, V_plus
-
-    def run(self):
-        """
-        Executes pipeline.
-        """
-        self.build_low_rank_matrix()
-        self.build_omega_mask()
-        self.complete_matrix()

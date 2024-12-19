@@ -1,6 +1,9 @@
+import os
+import json 
 import numpy as np
-
-
+from tqdm import tqdm
+from collections import defaultdict
+from os.path import join
 # Matrix Generator Class
 class MatrixGenerator:
     @staticmethod
@@ -144,3 +147,77 @@ class DatasetMatrix:
         Generates a noisy low-rank matrix based on the dataset.
         """
         self.parse_dataset()
+
+        
+        
+class SpotifyDataset: 
+    
+    def __init__(self, src_path, min_playlist_len, min_num_tracks, preprocessed_path = None):
+        
+
+        self.min_playlist_len = min_playlist_len
+        self.min_num_tracks = min_num_tracks
+        
+        if preprocessed_path is not None: 
+            self.data = np.load(preprocessed_path)
+        else: 
+            self.data = self.__construct_ds__(src_path)
+        
+    def get_data(self): 
+        return self.data
+    
+    def __construct_ds__(self, path): 
+    
+        playlist_to_tracks = defaultdict(list)
+        track_to_playlists = defaultdict(list)
+
+        for f_name in tqdm(os.listdir(path)):
+            with open(join(path, f_name), 'r') as f:
+                data = json.load(f)
+
+                for playlist in data["playlists"]:
+                    playlist_id = playlist['pid']
+                    for track in playlist["tracks"]:
+                        track_id = hash(track['track_uri'])
+
+                        playlist_to_tracks[playlist_id].append(track_id)
+                        track_to_playlists[track_id].append(playlist_id)
+        
+        deleting_tracks = []
+
+        for track, playlists in tqdm(track_to_playlists.items(), total=len(track_to_playlists)):
+            if len(playlists) < self.min_playlist_len: # 3000
+                deleting_tracks.append(track)
+
+        for track in deleting_tracks:
+            del track_to_playlists[track]
+
+        new_playlist_to_tracks = {}
+        for playlist, tracks in tqdm(playlist_to_tracks.items(), total=len(playlist_to_tracks)):
+            new_tracks = [track for track in tracks if track in track_to_playlists]
+            if len(new_tracks) >= self.min_num_tracks: # 100
+                new_playlist_to_tracks[playlist] = new_tracks
+
+        playlist_to_tracks = new_playlist_to_tracks
+        
+        playlist_to_id = {playlist: i for i, playlist in enumerate(playlist_to_tracks)}
+        track_to_id = {track: i for i, track in enumerate(track_to_playlists)}   
+        
+        playlist_to_tracks_id = [None] * len(playlist_to_tracks)
+        track_to_playlists_id = [None] * len(track_to_playlists)
+
+        for playlist, tracks in playlist_to_tracks.items():
+            playlist_id = playlist_to_id[playlist]
+            track_ids = [track_to_id[track] for track in tracks]
+            playlist_to_tracks_id[playlist_id] = track_ids
+
+        for track, playlists in track_to_playlists.items():
+            track_id = track_to_id[track]
+            playlist_ids = [playlist_to_id[playlist] for playlist in playlists if playlist in playlist_to_id]
+            track_to_playlists_id[track_id] = playlist_ids
+            
+        self.data = np.zeros( (len(playlist_to_tracks), len(track_to_playlists)) )
+        
+        for i, item in enumerate( playlist_to_tracks_id ): 
+            for j in item: 
+                self.data[i][j] = 1

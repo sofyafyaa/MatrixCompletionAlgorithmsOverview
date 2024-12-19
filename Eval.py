@@ -50,7 +50,8 @@ def evaluate(evaluation_config: EvaluationConfig):
             experiments.append({
                 'iters_info': model.model.iters_info,
                 'rank': rank,
-                'OS': OS
+                'OS': OS,
+                'alpha': 0.33
             })
         path = os.path.join('plots', model.title + '.png')
         model.model.plot_info(path, experiments)

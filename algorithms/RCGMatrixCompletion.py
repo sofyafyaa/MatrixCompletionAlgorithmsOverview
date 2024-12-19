@@ -223,10 +223,10 @@ class RCGMatrixCompletion(MatrixCompletion):
 
             label = f"alpha={alpha} missing={OS} rank={rank}"
             color = colors[i % len(colors)]
-            axs[0, 0].plot(iterations, relative_errors, label=label, colors=color)
-            axs[0, 1].plot(iterations, relative_residuals, label=label, colors=color)
-            axs[1, 0].plot(iterations, grad_norms, label=label, colors=color)
-            axs[1, 1].plot(iterations, costs, label=label, colors=color)
+            axs[0, 0].plot(iterations, relative_errors, label=label, color=color)
+            axs[0, 1].plot(iterations, relative_residuals, label=label, color=color)
+            axs[1, 0].plot(iterations, grad_norms, label=label, color=color)
+            axs[1, 1].plot(iterations, costs, label=label, color=color)
         
         axs[0, 0].legend()
         axs[0, 1].legend()

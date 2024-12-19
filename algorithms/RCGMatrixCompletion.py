@@ -1,6 +1,9 @@
-import numpy as np
+# import numpy as np
+import cupy as np
+import numpy
 import json
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 from MatrixCompletionClass import MatrixCompletion
 from utils.metrics import calculate_relative_error, calculate_relative_residual
@@ -24,6 +27,9 @@ class RCGMatrixCompletion(MatrixCompletion):
         """Solve the matrix completion problem using Riemannian Conjugate Gradient."""
         self.iters_info = []
         
+        M = np.asarray(M)
+        Omega = np.asarray(Omega)
+        
         method = kwargs['method']
         metric = kwargs['metric']
         
@@ -33,7 +39,7 @@ class RCGMatrixCompletion(MatrixCompletion):
         grad_G_prev, grad_H_prev = None, None
         direction_G, direction_H = None, None
 
-        for iter in range(self.num_iters):
+        for iter in tqdm(range(self.num_iters)):
             # Compute gradient and cost
             grad_G, grad_H = self._compute_gradient(G, H, M, Omega, metric)
             cost = self._compute_cost(G, H, M, Omega)
@@ -71,6 +77,7 @@ class RCGMatrixCompletion(MatrixCompletion):
             grad_G_prev, grad_H_prev = grad_G.copy(), grad_H.copy()
 
             X = G @ H.T
+            
             relative_error = calculate_relative_error(X, M)
             relative_residual = calculate_relative_residual(X, M, Omega)
             self.iters_info.append({
@@ -179,38 +186,41 @@ class RCGMatrixCompletion(MatrixCompletion):
     def plot_info(self, path):
         # Extracting data for plotting
         iterations = [info['iteration'] for info in self.iters_info]
-        costs = [info['cost'] for info in self.iters_info]
-        grad_norms = [info['grad_norm'] for info in self.iters_info]
-        relative_errors = [info['relative_error'] for info in self.iters_info]
-        relative_residuals = [info['relative_residual'] for info in self.iters_info]
+        costs = [np.asnumpy(info['cost']) for info in self.iters_info]
+        grad_norms = [np.asnumpy(info['grad_norm']) for info in self.iters_info]
+        relative_errors = [np.asnumpy(info['relative_error']) for info in self.iters_info]
+        relative_residuals = [np.asnumpy(info['relative_residual']) for info in self.iters_info]
 
         # Create and save the plots in a single figure
-        fig, axs = plt.subplots(2, 2, figsize=(10, 8))
+        fig, axs = plt.subplots(2, 2, figsize=(12, 10))
 
-        # Plotting each metric
-        axs[0, 0].plot(iterations, costs, marker='o')
-        axs[0, 0].set_yscale('log')
-        axs[0, 0].set_title('Cost vs Iteration')
-        axs[0, 0].set_xlabel('Iteration')
-        axs[0, 0].set_ylabel('Cost')
+        axs[0, 0].set_yscale("log")
+        axs[0, 0].plot(iterations, relative_errors, label=f"alpha={self.alpha}")
+        axs[0, 0].set_title("Reconstruction Error Over Time", fontsize=18)
+        axs[0, 0].set_xlabel("Iteration", fontsize=12)
+        axs[0, 0].set_ylabel(r"$\frac{\|X-A\|_F}{\|A\|_F}$", fontsize=16)
+        axs[0, 0].legend()  # Add legend to this subplot
 
-        axs[0, 1].plot(iterations, grad_norms, marker='o', color='orange')
-        axs[0, 1].set_yscale('log')
-        axs[0, 1].set_title('Grad Norm vs Iteration')
-        axs[0, 1].set_xlabel('Iteration')
-        axs[0, 1].set_ylabel('Grad Norm')
+        axs[0, 1].set_yscale("log")
+        axs[0, 1].plot(iterations, relative_residuals, label=f"alpha={self.alpha}")
+        axs[0, 1].set_title("Reconstruction Residual Over Time", fontsize=18)
+        axs[0, 1].set_xlabel("Iteration", fontsize=12)
+        axs[0, 1].set_ylabel(r"$\frac{\|P_{\Omega}(X-A)\|_F}{\|P_{\Omega}(A)\|_F}$", fontsize=16)
+        axs[0, 1].legend()  # Add legend to this subplot
 
-        axs[1, 0].plot(iterations, relative_errors, marker='o', color='green')
-        axs[1, 0].set_yscale('log')
-        axs[1, 0].set_title('Relative Error vs Iteration')
-        axs[1, 0].set_xlabel('Iteration')
-        axs[1, 0].set_ylabel('Relative Error')
+        axs[1, 0].set_yscale("log")
+        axs[1, 0].plot(iterations, grad_norms, label=f"alpha={self.alpha}")
+        axs[1, 0].set_title("Gradient Norm over time", fontsize=18)
+        axs[1, 0].set_xlabel("Iteration", fontsize=12)
+        axs[1, 0].set_ylabel(r"$\|\nabla\|P_{\Omega}(X-A)\|_F\|$", fontsize=16)
+        axs[1, 0].legend()  # Add legend to this subplot
 
-        axs[1, 1].plot(iterations, relative_residuals, marker='o', color='red')
-        axs[1, 1].set_yscale('log')
-        axs[1, 1].set_title('Relative Residual vs Iteration')
-        axs[1, 1].set_xlabel('Iteration')
-        axs[1, 1].set_ylabel('Relative Residual')
+        axs[1, 1].set_yscale("log")
+        axs[1, 1].plot(iterations, costs, label=f"alpha={self.alpha}")
+        axs[1, 1].set_title("Conjugate Direction Norm over time", fontsize=18)
+        axs[1, 1].set_xlabel("Iteration", fontsize=12)
+        axs[1, 1].set_ylabel(r"$\|\eta\|_F$", fontsize=16)
+        axs[1, 1].legend()  # Add legend to this subplot
 
         # Adjust layout
         plt.tight_layout()

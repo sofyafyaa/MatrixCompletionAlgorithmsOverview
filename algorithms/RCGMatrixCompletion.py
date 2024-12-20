@@ -1,5 +1,5 @@
 # import numpy as np
-import cupy as np
+import numpy as np
 import numpy
 import json
 import matplotlib.pyplot as plt
@@ -26,22 +26,31 @@ class RCGMatrixCompletion(MatrixCompletion):
     def complete_matrix(self, M, Omega, **kwargs):
         """Solve the matrix completion problem using Riemannian Conjugate Gradient."""
         self.iters_info = []
-        
+
         M = np.asarray(M)
         Omega = np.asarray(Omega)
-        
-        method = kwargs['method']
-        metric = kwargs['metric']
-        
+
+        method = kwargs["method"]
+        metric = kwargs["metric"]
+        self.with_laplace = kwargs["laplace"]
+
         # Initialization
         G, H = self._get_initial_approximation(M, Omega)
 
         grad_G_prev, grad_H_prev = None, None
         direction_G, direction_H = None, None
 
+        if self.with_laplace:
+            theta_r, theta_c = self.compute_laplacians(M * Omega)
+
         for iter in tqdm(range(self.num_iters)):
             # Compute gradient and cost
-            grad_G, grad_H = self._compute_gradient(G, H, M, Omega, metric)
+            if self.with_laplace:
+                grad_G, grad_H = self._compute_gradient(
+                    G, H, M, Omega, theta_c, theta_r, metric
+                )
+            else:
+                grad_G, grad_H = self._compute_gradient(G, H, M, Omega, metric)
             cost = self._compute_cost(G, H, M, Omega)
 
             # Check stopping criterion based on gradient norm
@@ -77,18 +86,56 @@ class RCGMatrixCompletion(MatrixCompletion):
             grad_G_prev, grad_H_prev = grad_G.copy(), grad_H.copy()
 
             X = G @ H.T
-            
+
             relative_error = calculate_relative_error(X, M)
             relative_residual = calculate_relative_residual(X, M, Omega)
-            self.iters_info.append({
-                'iteration': iter,
-                'cost': cost,
-                'grad_norm': grad_norm,
-                'relative_error': relative_error,
-                'relative_residual': relative_residual
-            })
+            self.iters_info.append(
+                {
+                    "iteration": iter,
+                    "cost": cost,
+                    "grad_norm": grad_norm,
+                    "relative_error": relative_error,
+                    "relative_residual": relative_residual,
+                }
+            )
 
         return G @ H.T
+
+    def compute_laplacians(self, M):
+        """
+        Compute the row-wise and column-wise Laplacians for a non-square matrix.
+
+        Parameters:
+        - M: Input matrix of size (m, n).
+
+        Returns:
+        - L_rows: Row-wise Laplacian (m x m).
+        - L_columns: Column-wise Laplacian (n x n).
+        """
+        # Compute row adjacency matrix (MM^T)
+        A_rows = np.dot(M, M.T)
+
+        # Degree matrix for rows
+        # D_rows = np.eye(A_rows.shape[0])
+        D_rows = np.diag(np.sum(A_rows, axis=1))
+
+        # Row-wise Laplacian
+        L_rows = D_rows - A_rows
+
+        # Compute column adjacency matrix (M^TM)
+        A_columns = np.dot(M.T, M)
+
+        # Degree matrix for columns
+        D_columns = np.diag(np.sum(A_columns, axis=1))
+        # D_rows = np.diag(np.sum(A_rows, axis=1))
+
+        # Column-wise Laplacian
+        L_columns = D_columns - A_columns
+
+        return (
+            np.eye(L_rows.shape[0]) + 0.01 * L_rows,
+            np.eye(L_columns.shape[0]) + 0.01 * L_columns,
+        )
 
     def _get_initial_approximation(self, M, Omega):
         """Spectral initialization using SVD."""
@@ -97,11 +144,17 @@ class RCGMatrixCompletion(MatrixCompletion):
         H_init = Vt[: self.rank, :].T @ np.diag(np.sqrt(S[: self.rank]))
         return G_init, H_init
 
-    def _compute_gradient(self, G, H, M, Omega, metric="QPRECON"):
+    def _compute_gradient(
+        self, G, H, M, Omega, laplac_c=None, laplac_r=None, metric="QPRECON"
+    ):
         """Compute the gradient of the objective function."""
         residual = Omega * (G @ H.T - M)
-        grad_G = residual @ H + self.alpha * G
-        grad_H = residual.T @ G + self.alpha * H
+        if self.with_laplace:
+            grad_G = residual @ H + self.alpha * laplac_r @ G
+            grad_H = residual.T @ G + self.alpha * laplac_c @ H
+        else:
+            grad_G = residual @ H + self.alpha * G
+            grad_H = residual.T @ G + self.alpha * H
         if metric == "QPRECON":
             rgrad_G, rgrad_H = self.compute_qprecon_gradient(G, H, grad_G, grad_H)
         else:
@@ -182,12 +235,12 @@ class RCGMatrixCompletion(MatrixCompletion):
 
         step_size = numerator / denominator
         return max(step_size, 1e-4)  # Ensure positive step size
-    
+
     @staticmethod
     def plot_info(path, experiments):
         # Create and save the plots in a single figure
         fig, axs = plt.subplots(2, 2, figsize=(12, 10))
-        colors = ['red', 'blue', 'yellow', 'green']
+        colors = ["red", "blue", "yellow", "green"]
 
         axs[0, 0].set_yscale("log")
         axs[0, 0].set_title("Reconstruction Error Over Time", fontsize=18)
@@ -197,7 +250,9 @@ class RCGMatrixCompletion(MatrixCompletion):
         axs[0, 1].set_yscale("log")
         axs[0, 1].set_title("Reconstruction Residual Over Time", fontsize=18)
         axs[0, 1].set_xlabel("Iteration", fontsize=12)
-        axs[0, 1].set_ylabel(r"$\frac{\|P_{\Omega}(X-A)\|_F}{\|P_{\Omega}(A)\|_F}$", fontsize=16)
+        axs[0, 1].set_ylabel(
+            r"$\frac{\|P_{\Omega}(X-A)\|_F}{\|P_{\Omega}(A)\|_F}$", fontsize=16
+        )
 
         axs[1, 0].set_yscale("log")
         axs[1, 0].set_title("Gradient Norm over time", fontsize=18)
@@ -208,26 +263,26 @@ class RCGMatrixCompletion(MatrixCompletion):
         axs[1, 1].set_title("Conjugate Direction Norm over time", fontsize=18)
         axs[1, 1].set_xlabel("Iteration", fontsize=12)
         axs[1, 1].set_ylabel(r"$\|\eta\|_F$", fontsize=16)
-        
+
         for i, experiment in enumerate(experiments):
-            iters_info = experiment['iters_info']
-            alpha = experiment['alpha']
-            OS = experiment['OS']
-            rank = experiment['rank']
-            
-            iterations = [info['iteration'] for info in iters_info]
-            costs = [np.asnumpy(info['cost']) for info in iters_info]
-            grad_norms = [np.asnumpy(info['grad_norm']) for info in iters_info]
-            relative_errors = [np.asnumpy(info['relative_error']) for info in iters_info]
-            relative_residuals = [np.asnumpy(info['relative_residual']) for info in iters_info]
+            iters_info = experiment["iters_info"]
+            alpha = experiment["alpha"]
+            OS = experiment["OS"]
+            rank = experiment["rank"]
+
+            iterations = [info["iteration"] for info in iters_info]
+            costs = [info["cost"] for info in iters_info]
+            grad_norms = [info["grad_norm"] for info in iters_info]
+            relative_errors = [info["relative_error"] for info in iters_info]
+            relative_residuals = [info["relative_residual"] for info in iters_info]
 
             label = f"alpha={alpha} missing={OS} rank={rank}"
             color = colors[i % len(colors)]
-            axs[0, 0].plot(iterations, relative_errors, label=label, colors=color)
-            axs[0, 1].plot(iterations, relative_residuals, label=label, colors=color)
-            axs[1, 0].plot(iterations, grad_norms, label=label, colors=color)
-            axs[1, 1].plot(iterations, costs, label=label, colors=color)
-        
+            axs[0, 0].plot(iterations, relative_errors, label=label, color=color)
+            axs[0, 1].plot(iterations, relative_residuals, label=label, color=color)
+            axs[1, 0].plot(iterations, grad_norms, label=label, color=color)
+            axs[1, 1].plot(iterations, costs, label=label, color=color)
+
         axs[0, 0].legend()
         axs[0, 1].legend()
         axs[1, 0].legend()

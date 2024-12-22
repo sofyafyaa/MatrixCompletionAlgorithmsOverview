@@ -101,7 +101,6 @@ class MatrixCompletion:
 class SimpleLS(MatrixCompletion):
     def complete_matrix(self):
         """
-        Это написало гпт
         Different methods of matrix completion
         In this example LS implemented
         """

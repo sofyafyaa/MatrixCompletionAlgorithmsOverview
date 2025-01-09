@@ -9,6 +9,17 @@ from MatrixCompletionClass import MatrixCompletion
 from utils.metrics import calculate_relative_error, calculate_relative_residual
 
 
+# import numpy as np
+import numpy as np
+import numpy
+import json
+import matplotlib.pyplot as plt
+from tqdm import tqdm
+
+from MatrixCompletionClass import MatrixCompletion
+from utils.metrics import calculate_relative_error, calculate_relative_residual
+
+
 class RCGMatrixCompletion(MatrixCompletion):
     """
     Initialize the RCG Matrix Completion class.
@@ -18,10 +29,24 @@ class RCGMatrixCompletion(MatrixCompletion):
     - alpha: Regularization parameter.
     """
 
-    def __init__(self, params_str):
+    def __init__(self, params_str, L_c=None, L_r=None):
         super().__init__(params_str)
         params = json.loads(params_str)
         self.alpha = params["alpha"]
+        self.delta = params["delta"]
+        self.gamma_c = params["gamma_c"]
+        self.gamma_r = params["gamma_r"]
+        if L_c is not None and L_r is not None:
+            self.theta_r, self.theta_c = self._get_theta(L_c, L_r)
+        # else
+
+    def _get_theta(self, L_c, L_r):
+
+        theta_c = np.eye(L_c.shape[0]) + self.gamma_c * L_c
+        theta_r = np.eye(L_r.shape[0]) + self.gamma_r * L_r
+        print(f"theta_r shape: {theta_r.shape}")
+        print(f"theta_c shape: {theta_c.shape}")
+        return theta_r, theta_c
 
     def complete_matrix(self, M, Omega, **kwargs):
         """Solve the matrix completion problem using Riemannian Conjugate Gradient."""
@@ -32,25 +57,17 @@ class RCGMatrixCompletion(MatrixCompletion):
 
         method = kwargs["method"]
         metric = kwargs["metric"]
-        self.with_laplace = kwargs["laplace"]
 
         # Initialization
         G, H = self._get_initial_approximation(M, Omega)
 
+        # print(np.linalg.norm(M - G @ H.T))
         grad_G_prev, grad_H_prev = None, None
         direction_G, direction_H = None, None
 
-        if self.with_laplace:
-            theta_r, theta_c = self.compute_laplacians(M * Omega)
-
         for iter in tqdm(range(self.num_iters)):
             # Compute gradient and cost
-            if self.with_laplace:
-                grad_G, grad_H = self._compute_gradient(
-                    G, H, M, Omega, theta_c, theta_r, metric
-                )
-            else:
-                grad_G, grad_H = self._compute_gradient(G, H, M, Omega, metric)
+            grad_G, grad_H = self._compute_gradient(G, H, M, Omega, metric)
             cost = self._compute_cost(G, H, M, Omega)
 
             # Check stopping criterion based on gradient norm
@@ -101,60 +118,26 @@ class RCGMatrixCompletion(MatrixCompletion):
 
         return G @ H.T
 
-    def compute_laplacians(self, M):
-        """
-        Compute the row-wise and column-wise Laplacians for a non-square matrix.
-
-        Parameters:
-        - M: Input matrix of size (m, n).
-
-        Returns:
-        - L_rows: Row-wise Laplacian (m x m).
-        - L_columns: Column-wise Laplacian (n x n).
-        """
-        # Compute row adjacency matrix (MM^T)
-        A_rows = np.dot(M, M.T)
-
-        # Degree matrix for rows
-        # D_rows = np.eye(A_rows.shape[0])
-        D_rows = np.diag(np.sum(A_rows, axis=1))
-
-        # Row-wise Laplacian
-        L_rows = D_rows - A_rows
-
-        # Compute column adjacency matrix (M^TM)
-        A_columns = np.dot(M.T, M)
-
-        # Degree matrix for columns
-        D_columns = np.diag(np.sum(A_columns, axis=1))
-        # D_rows = np.diag(np.sum(A_rows, axis=1))
-
-        # Column-wise Laplacian
-        L_columns = D_columns - A_columns
-
-        return (
-            np.eye(L_rows.shape[0]) + 0.01 * L_rows,
-            np.eye(L_columns.shape[0]) + 0.01 * L_columns,
-        )
-
     def _get_initial_approximation(self, M, Omega):
         """Spectral initialization using SVD."""
+
         U, S, Vt = np.linalg.svd(Omega * M, full_matrices=False)
+        print(f"U size: {U.shape}")
+        print(f"S size: {S.shape}")
+        print(f"Vt size: {Vt.shape}")
+
+        print(f"M size: {M.shape}")
+        print(f"Omega size: {Omega.shape}")
+
         G_init = U[:, : self.rank] @ np.diag(np.sqrt(S[: self.rank]))
         H_init = Vt[: self.rank, :].T @ np.diag(np.sqrt(S[: self.rank]))
         return G_init, H_init
 
-    def _compute_gradient(
-        self, G, H, M, Omega, laplac_c=None, laplac_r=None, metric="QPRECON"
-    ):
+    def _compute_gradient(self, G, H, M, Omega, metric="QPRECON"):
         """Compute the gradient of the objective function."""
         residual = Omega * (G @ H.T - M)
-        if self.with_laplace:
-            grad_G = residual @ H + self.alpha * laplac_r @ G
-            grad_H = residual.T @ G + self.alpha * laplac_c @ H
-        else:
-            grad_G = residual @ H + self.alpha * G
-            grad_H = residual.T @ G + self.alpha * H
+        grad_G = residual @ H + self.alpha * self.theta_r @ G
+        grad_H = residual.T @ G + self.alpha * self.theta_c @ H
         if metric == "QPRECON":
             rgrad_G, rgrad_H = self.compute_qprecon_gradient(G, H, grad_G, grad_H)
         else:
@@ -176,7 +159,7 @@ class RCGMatrixCompletion(MatrixCompletion):
         - rgrad_G: Riemannian gradient with respect to G
         - rgrad_H: Riemannian gradient with respect to H
         """
-        GTG = G.T @ G + self.alpha * np.eye(G.shape[1])
+        GTG = G.T @ G + self.delta * np.eye(G.shape[1])
         HTH = H.T @ H + self.alpha * np.eye(H.shape[1])
 
         rgrad_G = grad_G @ GTG
@@ -198,8 +181,8 @@ class RCGMatrixCompletion(MatrixCompletion):
         - rgrad_G: Riemannian gradient with respect to G
         - rgrad_H: Riemannian gradient with respect to H
         """
-        GTG_inv = np.linalg.inv(G.T @ G + self.alpha * np.eye(G.shape[1]))
-        HTH_inv = np.linalg.inv(H.T @ H + self.alpha * np.eye(H.shape[1]))
+        GTG_inv = np.linalg.inv(G.T @ G + self.delta * np.eye(G.shape[1]))
+        HTH_inv = np.linalg.inv(H.T @ H + self.delta * np.eye(H.shape[1]))
 
         rgrad_G = grad_G @ HTH_inv
         rgrad_H = grad_H @ GTG_inv
@@ -237,7 +220,7 @@ class RCGMatrixCompletion(MatrixCompletion):
         return max(step_size, 1e-4)  # Ensure positive step size
 
     @staticmethod
-    def plot_info(path, experiments):
+    def plot_info(experiments, path=None):
         # Create and save the plots in a single figure
         fig, axs = plt.subplots(2, 2, figsize=(12, 10))
         colors = ["red", "blue", "yellow", "green"]
@@ -260,7 +243,7 @@ class RCGMatrixCompletion(MatrixCompletion):
         axs[1, 0].set_ylabel(r"$\|\nabla\|P_{\Omega}(X-A)\|_F\|$", fontsize=16)
 
         axs[1, 1].set_yscale("log")
-        axs[1, 1].set_title("Conjugate Direction Norm over time", fontsize=18)
+        axs[1, 1].set_title("Cost", fontsize=18)
         axs[1, 1].set_xlabel("Iteration", fontsize=12)
         axs[1, 1].set_ylabel(r"$\|\eta\|_F$", fontsize=16)
 
@@ -271,13 +254,18 @@ class RCGMatrixCompletion(MatrixCompletion):
             rank = experiment["rank"]
 
             iterations = [info["iteration"] for info in iters_info]
-            costs = [info["cost"] for info in iters_info]
-            grad_norms = [info["grad_norm"] for info in iters_info]
-            relative_errors = [info["relative_error"] for info in iters_info]
-            relative_residuals = [info["relative_residual"] for info in iters_info]
+            costs = [np.asarray(info["cost"]) for info in iters_info]
+            grad_norms = [np.asarray(info["grad_norm"]) for info in iters_info]
+            relative_errors = [
+                np.asarray(info["relative_error"]) for info in iters_info
+            ]
+            relative_residuals = [
+                np.asarray(info["relative_residual"]) for info in iters_info
+            ]
 
             label = f"alpha={alpha} missing={OS} rank={rank}"
             color = colors[i % len(colors)]
+            print(np.max(iterations))
             axs[0, 0].plot(iterations, relative_errors, label=label, color=color)
             axs[0, 1].plot(iterations, relative_residuals, label=label, color=color)
             axs[1, 0].plot(iterations, grad_norms, label=label, color=color)
@@ -292,4 +280,5 @@ class RCGMatrixCompletion(MatrixCompletion):
         plt.tight_layout()
 
         # Save the figure
-        plt.savefig(path)
+        if path:
+            plt.savefig(path)
